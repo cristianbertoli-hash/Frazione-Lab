@@ -3,7 +3,7 @@ name: Build Frazione Lab Android Offline
 on:
   workflow_dispatch:
   push:
-    branches: ["main"]
+    branches: ["main", "feature/fra1e-offline-completion"]
     paths:
       - "offline/android/**"
       - ".github/workflows/build-android-offline.yml"
