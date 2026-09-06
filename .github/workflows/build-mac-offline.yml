@@ -1,0 +1,102 @@
+name: Build Frazione Lab Mac Offline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "feature/fra1e-offline-completion"]
+    paths:
+      - "offline/mac/**"
+      - ".github/workflows/build-mac-offline.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Show toolchain
+        run: |
+          set -euxo pipefail
+          sw_vers
+          uname -m
+          xcrun swiftc --version
+          xcodebuild -version
+
+      - name: Run FRA1/FRA1E Mac compatibility tests
+        run: |
+          set -euxo pipefail
+          BUILD="$RUNNER_TEMP/fra1-mac-tests"
+          rm -rf "$BUILD" && mkdir -p "$BUILD"
+          xcrun clang -c offline/mac/PBKDF2Shim.c -o "$BUILD/PBKDF2Shim.o"
+          xcrun swiftc \
+            offline/mac/Fra1Codec.swift \
+            offline/mac/PasswordGenerator.swift \
+            offline/mac/Fra1CodecTests.swift \
+            "$BUILD/PBKDF2Shim.o" \
+            -o "$BUILD/Fra1CodecTests"
+          "$BUILD/Fra1CodecTests"
+
+      - name: Verify Mac app contains no network API usage
+        run: |
+          set -euxo pipefail
+          ! grep -R -E "URLSession|NSURLConnection|Network\.framework|NWConnection|CFNetwork" offline/mac --include='*.swift'
+
+      - name: Build Big Sur Intel app
+        run: |
+          set -euxo pipefail
+          BUILD="$RUNNER_TEMP/frazionelab-mac"
+          DIST="$GITHUB_WORKSPACE/dist-mac"
+          APP="$BUILD/Frazione Lab Offline.app"
+          rm -rf "$BUILD" "$DIST"
+          mkdir -p "$APP/Contents/MacOS" "$DIST"
+
+          xcrun clang -c -arch x86_64 -mmacosx-version-min=11.0 \
+            offline/mac/PBKDF2Shim.c -o "$BUILD/PBKDF2Shim-x86_64.o"
+
+          xcrun swiftc -O \
+            -target x86_64-apple-macos11.0 \
+            offline/mac/Fra1Codec.swift \
+            offline/mac/PasswordGenerator.swift \
+            offline/mac/main.swift \
+            "$BUILD/PBKDF2Shim-x86_64.o" \
+            -o "$APP/Contents/MacOS/FrazioneLab" \
+            -framework AppKit \
+            -framework UniformTypeIdentifiers
+
+          cp offline/mac/Info.plist "$APP/Contents/Info.plist"
+          chmod +x "$APP/Contents/MacOS/FrazioneLab"
+          /usr/bin/codesign --force --deep --sign - "$APP"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
+          file "$APP/Contents/MacOS/FrazioneLab"
+          file "$APP/Contents/MacOS/FrazioneLab" | grep -q "x86_64"
+
+          cat > "$DIST/LEGGIMI-MAC.txt" <<'TXT'
+          FRAZIONE LAB OFFLINE v2.0 — MAC INTEL / macOS BIG SUR 11+
+
+          - FRA1 lossless: conserva il file originale byte-per-byte.
+          - FRA1E: AES-GCM 128 o 256 bit + PBKDF2-SHA-256 (600.000 iterazioni).
+          - Riconoscimento automatico AES-128/AES-256 durante l'apertura.
+          - Generatore password 16/24/32 caratteri, solo locale.
+          - Nessun upload e nessun codice di rete nell'app.
+
+          L'app è firmata ad-hoc, non notarizzata con un account Apple Developer.
+          Se macOS mostra un avviso al primo avvio: tasto destro sull'app > Apri > Apri.
+          TXT
+
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$DIST/Frazione-Lab-Offline-Mac-Intel-BigSur-v2.0.zip"
+          hdiutil create -volname "Frazione Lab Offline" -srcfolder "$APP" -ov -format UDZO "$DIST/Frazione-Lab-Offline-Mac-Intel-BigSur-v2.0.dmg"
+          (cd "$DIST" && shasum -a 256 Frazione-Lab-Offline-Mac-Intel-BigSur-v2.0.zip Frazione-Lab-Offline-Mac-Intel-BigSur-v2.0.dmg > SHA256SUMS.txt)
+          ls -lh "$DIST"
+
+      - name: Upload Mac packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: Frazione-Lab-Offline-Mac-Intel-BigSur-v2.0
+          path: dist-mac/*
+          if-no-files-found: error
+          retention-days: 30
