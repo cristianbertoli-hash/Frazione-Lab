@@ -85,7 +85,22 @@ function bytes(n) {
   assert.ok(appScript >= 0, 'index.html must load app.js');
   assert.ok(fra1qrScript < appScript, 'fra1qr.js must load before app.js');
 
-  console.log('PASS FRA1-QR transport, FRA1E round-trip and web DOM tests');
+  const validSet = JSON.stringify({
+    format: 'FRA1-QR-v0',
+    createdAt: '2026-09-06T21:30:00.000Z',
+    frameCount: split.frames.length,
+    frames: split.frames
+  });
+  assert.deepEqual(Q.parseFrameSetJson(validSet), split.frames);
+  assert.throws(() => Q.parseFrameSetJson(JSON.stringify({format:'ALTRO',frameCount:split.frames.length,frames:split.frames})), /format/i);
+  assert.throws(() => Q.parseFrameSetJson(JSON.stringify({format:'FRA1-QR-v0',frameCount:0,frames:[]})), /frame/i);
+  assert.throws(() => Q.parseFrameSetJson(JSON.stringify({format:'FRA1-QR-v0',frameCount:2,frames:[split.frames[0],123]})), /string|testo/i);
+  assert.throws(() => Q.parseFrameSetJson(JSON.stringify({format:'FRA1-QR-v0',frameCount:999,frames:split.frames})), /conteggio|count/i);
+  assert.throws(() => Q.parseFrameSetJson(JSON.stringify({format:'FRA1-QR-v0',frameCount:2,frames:[split.frames[0],other.frames[1]]})), /transfer/i);
+  const missingSet = split.frames.filter((_,i)=>i!==5);
+  assert.throws(() => Q.parseFrameSetJson(JSON.stringify({format:'FRA1-QR-v0',frameCount:missingSet.length,frames:missingSet})), /mancanti/i);
+
+  console.log('PASS FRA1-QR transport, FRA1E round-trip, DOM and frame-set JSON tests');
 })().catch(err => {
   console.error(err);
   process.exit(1);
