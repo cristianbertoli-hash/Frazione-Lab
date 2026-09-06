@@ -10,17 +10,20 @@
 h1{font-size:36px;margin:0}.subtitle{color:#6e6e73;margin:6px 0 24px}.card{background:#fff;border:1px solid #d2d2d7;border-radius:16px;padding:18px;margin:14px 0}
 h2{margin:0 0 10px;font-size:20px}.note,.meta{color:#6e6e73;font-size:13px;line-height:1.45}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 button,.fileButton{border:0;border-radius:10px;padding:11px 15px;font-weight:700;background:#0a84ff;color:#fff;cursor:pointer;display:inline-block}button:disabled{opacity:.45;cursor:default}
-.fileInput{position:absolute;width:1px;height:1px;opacity:0}.secondary{background:#e5e5ea;color:#1d1d1f}.protected{background:#5e2ca5}.ok{color:#177245;font-weight:700}.error{color:#c62828;font-weight:700}
+.fileInput{position:absolute;width:1px;height:1px;opacity:0}.secondary{background:#e5e5ea;color:#1d1d1f}.protected{background:#5e2ca5}.experimental{background:#ff9500}.ok{color:#177245;font-weight:700}.error{color:#c62828;font-weight:700}
 textarea,input[type="password"],select{border:1px solid #c7c7cc;border-radius:10px;padding:12px;background:#fff;color:#1d1d1f;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 textarea{width:100%;min-height:110px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}input[type="password"]{min-width:260px;flex:1}select{min-width:150px}
 .preview{display:none;max-width:280px;max-height:280px;border-radius:10px;border:1px solid #d2d2d7;margin-top:12px}.fractionBox{background:#f2f2f7;border-radius:10px;padding:12px;font:13px ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.status{margin-top:12px}.badge{display:inline-block;border-radius:999px;padding:4px 9px;background:#e5e5ea;font-size:12px;font-weight:700}
-@media(prefers-color-scheme:dark){body{background:#1c1c1e;color:#f5f5f7}.card{background:#2c2c2e;border-color:#48484a}.subtitle,.note,.meta{color:#a1a1a6}textarea,input[type="password"],select{background:#1c1c1e;color:#f5f5f7;border-color:#636366}.secondary,.badge{background:#48484a;color:#fff}.fractionBox{background:#1c1c1e}.preview{border-color:#48484a}}
+.qrStage{display:none;margin:16px auto 8px;max-width:800px;width:100%;aspect-ratio:1/1;background:#fff;border:1px solid #d2d2d7;border-radius:12px;padding:12px;align-items:center;justify-content:center;overflow:hidden}
+#qrCanvas{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#fff}#qrCanvas canvas,#qrCanvas img{max-width:100%!important;max-height:100%!important;width:auto!important;height:auto!important;image-rendering:pixelated}
+.qrLabel{text-align:center;font-weight:700;margin:8px 0}.warning{border-left:4px solid #ff9500;padding-left:10px}
+@media(prefers-color-scheme:dark){body{background:#1c1c1e;color:#f5f5f7}.card{background:#2c2c2e;border-color:#48484a}.subtitle,.note,.meta{color:#a1a1a6}textarea,input[type="password"],select{background:#1c1c1e;color:#f5f5f7;border-color:#636366}.secondary,.badge{background:#48484a;color:#fff}.fractionBox{background:#1c1c1e}.preview{border-color:#48484a}.qrStage{border-color:#48484a}}
 </style>
 </head>
 <body>
 <main class="wrap">
 <h1>Frazione Lab</h1>
-<p class="subtitle">Testo ⇄ frazione • Foto originale ⇄ FRA1 lossless • FRA1E cifrato AES-128/256</p>
+<p class="subtitle">Testo ⇄ frazione • Foto originale ⇄ FRA1 lossless • FRA1E cifrato AES-128/256 • esperimento FRA1-QR</p>
 
 <section class="card">
 <h2>Testo → frazione</h2>
@@ -57,6 +60,38 @@ textarea{width:100%;min-height:110px;resize:vertical;font-family:ui-monospace,SF
 <p class="note">AES-128 e AES-256 producono file della stessa dimensione. FRA1E aggiunge 64 byte al FRA1: la cifratura protegge i dati ma non li comprime.</p>
 </section>
 
+<section class="card" id="fra1QrCard">
+<h2>Esperimento FRA1-QR v0</h2>
+<p class="note warning"><strong>File max 100 KB → FRA1E AES-256 → sequenza di QR standard bianco/nero.</strong> È un esperimento di trasporto: non comprime il file e non aumenta la forza della cifratura.</p>
+<div class="row">
+<label class="fileButton experimental" for="qrInput">SCEGLI FILE ≤ 100 KB</label>
+<input class="fileInput" id="qrInput" type="file">
+<span id="qrInputInfo" class="meta">Nessun file scelto</span>
+</div>
+<div class="row" style="margin-top:12px">
+<input id="qrPassword" type="password" autocomplete="new-password" placeholder="Password FRA1E: minimo 12 caratteri">
+<button id="qrGenerate" class="experimental" disabled>GENERA QR CIFRATI</button>
+</div>
+<div id="qrStage" class="qrStage"><div id="qrCanvas" aria-label="QR FRA1-QR corrente"></div></div>
+<div id="qrFrameLabel" class="qrLabel">Nessun frame</div>
+<div class="row">
+<button id="qrPlay" disabled>▶ PLAY</button>
+<button id="qrPause" class="secondary" disabled>⏸ PAUSA</button>
+<label class="meta" for="qrInterval">Velocità:</label>
+<select id="qrInterval"><option value="250">250 ms</option><option value="350" selected>350 ms</option><option value="500">500 ms</option></select>
+<button id="qrExport" class="secondary" disabled>ESPORTA FRAME JSON</button>
+</div>
+<p class="note">Il JSON serve per verificare deterministicamente il prototipo senza fotocamera. La scansione live verrà nella fase successiva.</p>
+<div class="row" style="margin-top:14px">
+<label class="fileButton secondary" id="qrImport" for="qrImportInput">IMPORTA FRAME JSON</label>
+<input class="fileInput" id="qrImportInput" type="file" accept="application/json,.json">
+<input id="qrRestorePassword" type="password" autocomplete="current-password" placeholder="Password per ricostruire il file">
+<button id="qrRestore" disabled>RICOSTRUISCI E DECIFRA</button>
+<button id="qrDownload" class="secondary" disabled>SCARICA ORIGINALE</button>
+</div>
+<div id="qrStatus" class="status"></div>
+</section>
+
 <section class="card">
 <h2>FRA1 / FRA1E → recupera foto originale</h2>
 <p class="note">L'app riconosce automaticamente un FRA1 normale oppure un FRA1E AES-128/AES-256 leggendo l'intestazione interna. Il nome del file non serve per riconoscere la cifratura.</p>
@@ -79,7 +114,9 @@ textarea{width:100%;min-height:110px;resize:vertical;font-family:ui-monospace,SF
 <p class="note">Il file FRA1 è interpretato come un unico intero binario <strong>N</strong>. Se il pacchetto contiene K bit, la rappresentazione matematica è <strong>N / 2^K</strong>. Per foto grandi non mostriamo N in decimale: avrebbe milioni di cifre. FRA1E cifra quel pacchetto FRA1 senza perdita.</p>
 </section>
 </main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="codec.js"></script>
+<script src="fra1qr.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
