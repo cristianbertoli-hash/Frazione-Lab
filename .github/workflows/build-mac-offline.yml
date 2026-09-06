@@ -32,11 +32,12 @@ jobs:
           set -euxo pipefail
           BUILD="$RUNNER_TEMP/fra1-mac-tests"
           rm -rf "$BUILD" && mkdir -p "$BUILD"
+          cp offline/mac/Fra1CodecTests.swift "$BUILD/main.swift"
           xcrun clang -c offline/mac/PBKDF2Shim.c -o "$BUILD/PBKDF2Shim.o"
           xcrun swiftc \
             offline/mac/Fra1Codec.swift \
             offline/mac/PasswordGenerator.swift \
-            offline/mac/Fra1CodecTests.swift \
+            "$BUILD/main.swift" \
             "$BUILD/PBKDF2Shim.o" \
             -o "$BUILD/Fra1CodecTests"
           "$BUILD/Fra1CodecTests"
