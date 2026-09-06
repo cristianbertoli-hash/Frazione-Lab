@@ -171,6 +171,18 @@
     return out;
   }
 
+  function parseFrameSetJson(text){
+    let obj;
+    try { obj=JSON.parse(String(text)); }
+    catch(e){ throw new Error('JSON FRA1-QR non valido'); }
+    if(!obj || obj.format!=='FRA1-QR-v0') throw new Error('Formato FRA1-QR JSON non valido');
+    if(!Array.isArray(obj.frames) || obj.frames.length===0) throw new Error('Elenco frame FRA1-QR vuoto o non valido');
+    if(!Number.isInteger(obj.frameCount) || obj.frameCount!==obj.frames.length) throw new Error('Conteggio frame FRA1-QR incoerente');
+    if(obj.frames.some(frame=>typeof frame!=='string')) throw new Error('Ogni frame FRA1-QR deve essere testo');
+    reassemble(obj.frames);
+    return obj.frames.slice();
+  }
+
   return {
     VERSION,
     DEFAULT_PAYLOAD_BYTES,
@@ -180,6 +192,7 @@
     missingIndexes,
     encodeFrameText,
     decodeFrameText,
+    parseFrameSetJson,
     crc32
   };
 });
