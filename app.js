@@ -1,9 +1,11 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const MAX_FILE_BYTES=100*1024*1024;
+const MAX_QR_FILE_BYTES=100*1024;
 let originalFile=null, fra1Packet=null, fra1ePacket=null, restored=null;
 let selectedContainer=null, selectedInfo=null;
 let originalUrl=null, restoredUrl=null, fra1Url=null, fra1eUrl=null;
+let qrOriginalFile=null, qrFra1e=null, qrFrames=[], qrIndex=0, qrTimer=null, qrExportUrl=null;
 
 function sizeText(n){ if(n<1024)return `${n} B`; if(n<1024*1024)return `${(n/1024).toFixed(1)} KB`; return `${(n/1024/1024).toFixed(2)} MB`; }
 function setStatus(el,msg,error=false){ el.textContent=msg; el.className='status '+(error?'error':'ok'); }
@@ -27,6 +29,46 @@ function prepareRestored(decoded){
   $('downloadOriginal').disabled=false;
   if((restored.mime||'').startsWith('image/')){ $('restoredPreview').src=restoredUrl; $('restoredPreview').style.display='block'; }
   setStatus($('restoreStatus'),`SHA-256 verificato ✓ • recuperato ${restored.name} • ${sizeText(restored.bytes.length)} • file identico byte-per-byte.`);
+}
+
+function stopQrAnimation(){
+  if(qrTimer!==null){ clearInterval(qrTimer); qrTimer=null; }
+}
+
+function renderQrFrame(){
+  if(!qrFrames.length)return;
+  if(typeof QRCode!=='function')throw new Error('Renderer QR non disponibile');
+  qrIndex=((qrIndex%qrFrames.length)+qrFrames.length)%qrFrames.length;
+  const target=$('qrCanvas');
+  target.innerHTML='';
+  new QRCode(target,{
+    text:qrFrames[qrIndex],
+    width:800,
+    height:800,
+    correctLevel:QRCode.CorrectLevel.M
+  });
+  $('qrStage').style.display='flex';
+  $('qrFrameLabel').textContent=`Frame ${qrIndex+1} / ${qrFrames.length}`;
+}
+
+function startQrAnimation(){
+  if(!qrFrames.length)return;
+  stopQrAnimation();
+  renderQrFrame();
+  const interval=Number($('qrInterval').value)||350;
+  qrTimer=setInterval(()=>{
+    qrIndex=(qrIndex+1)%qrFrames.length;
+    try{ renderQrFrame(); }
+    catch(e){ stopQrAnimation(); setStatus($('qrStatus'),e.message,true); }
+  },interval);
+}
+
+function resetQrGenerated(){
+  stopQrAnimation();
+  qrFra1e=null; qrFrames=[]; qrIndex=0;
+  $('qrCanvas').innerHTML=''; $('qrStage').style.display='none'; $('qrFrameLabel').textContent='Nessun frame';
+  $('qrPlay').disabled=true; $('qrPause').disabled=true; $('qrExport').disabled=true;
+  revoke(qrExportUrl); qrExportUrl=null;
 }
 
 $('encodeText').addEventListener('click',()=>{ try{ $('textFraction').value=FractionCodec.encodeText($('textInput').value); setStatus($('textStatus'),'Testo codificato.'); }catch(e){setStatus($('textStatus'),e.message,true);} });
@@ -90,6 +132,58 @@ $('makeFra1e').addEventListener('click',async()=>{
 
 $('downloadFra1e').addEventListener('click',()=>{
   if(!fra1ePacket||!fra1eUrl||!originalFile)return; const a=document.createElement('a'); a.href=fra1eUrl; a.download=originalFile.name+'.fra1e'; a.click();
+});
+
+$('qrInput').addEventListener('change',()=>{
+  const file=$('qrInput').files?.[0];
+  qrOriginalFile=file||null;
+  resetQrGenerated();
+  $('qrRestore').disabled=true; $('qrDownload').disabled=true;
+  if(!file){ $('qrInputInfo').textContent='Nessun file scelto'; $('qrGenerate').disabled=true; return; }
+  $('qrInputInfo').textContent=`${file.name} • ${sizeText(file.size)} • ${file.type||'tipo non dichiarato'}`;
+  if(file.size>MAX_QR_FILE_BYTES){
+    $('qrGenerate').disabled=true;
+    setStatus($('qrStatus'),'FRA1-QR v0 accetta al massimo 100 KB.',true);
+  }else{
+    $('qrGenerate').disabled=false;
+    setStatus($('qrStatus'),'File pronto. Inserisci una password e genera la sequenza FRA1E AES-256 → QR.');
+  }
+});
+
+$('qrGenerate').addEventListener('click',async()=>{
+  if(!qrOriginalFile)return;
+  const password=$('qrPassword').value;
+  if(passwordLength(password)<12){ setStatus($('qrStatus'),'Password troppo corta: usa almeno 12 caratteri; consigliati 16 o più.',true); return; }
+  if(qrOriginalFile.size>MAX_QR_FILE_BYTES){ setStatus($('qrStatus'),'File oltre 100 KB.',true); return; }
+  const btn=$('qrGenerate');
+  btn.disabled=true; btn.textContent='CIFRO E GENERO…'; stopQrAnimation();
+  try{
+    const bytes=new Uint8Array(await qrOriginalFile.arrayBuffer());
+    const fra1=await FractionCodec.packOriginalFile({name:qrOriginalFile.name,mime:qrOriginalFile.type||'application/octet-stream',bytes});
+    qrFra1e=await FractionCodec.encryptFra1(fra1,password,256);
+    const split=await FRA1QR.split(qrFra1e,{payloadBytes:1350});
+    qrFrames=split.frames; qrIndex=0;
+    renderQrFrame();
+    $('qrPlay').disabled=false; $('qrPause').disabled=false; $('qrExport').disabled=false;
+    setStatus($('qrStatus'),`Creati ${qrFrames.length} QR • originale ${sizeText(bytes.length)} • FRA1E ${sizeText(qrFra1e.length)} • AES-256. I QR contengono solo dati cifrati.`);
+  }catch(e){ resetQrGenerated(); setStatus($('qrStatus'),e.message,true); }
+  finally{ btn.disabled=false; btn.textContent='GENERA QR CIFRATI'; }
+});
+
+$('qrPlay').addEventListener('click',()=>{
+  try{ startQrAnimation(); setStatus($('qrStatus'),`Animazione avviata: ${qrFrames.length} frame in ciclo.`); }
+  catch(e){ setStatus($('qrStatus'),e.message,true); }
+});
+$('qrPause').addEventListener('click',()=>{ stopQrAnimation(); if(qrFrames.length)setStatus($('qrStatus'),`Animazione in pausa al frame ${qrIndex+1}/${qrFrames.length}.`); });
+$('qrInterval').addEventListener('change',()=>{ if(qrTimer!==null) startQrAnimation(); });
+
+$('qrExport').addEventListener('click',()=>{
+  if(!qrFrames.length)return;
+  const data={format:'FRA1-QR-v0',createdAt:new Date().toISOString(),frameCount:qrFrames.length,frames:qrFrames};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  revoke(qrExportUrl); qrExportUrl=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=qrExportUrl; a.download=(qrOriginalFile?.name||'frazione-lab')+'.fra1qr.json'; a.click();
+  setStatus($('qrStatus'),`Esportato set di ${qrFrames.length} frame JSON. Il contenuto resta FRA1E AES-256 cifrato.`);
 });
 
 $('fra1Input').addEventListener('change',async()=>{
