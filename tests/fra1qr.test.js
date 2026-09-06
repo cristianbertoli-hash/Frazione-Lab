@@ -1,5 +1,7 @@
 'use strict';
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const { webcrypto } = require('crypto');
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 const Q = require('../fra1qr.js');
@@ -68,7 +70,22 @@ function bytes(n) {
   assert.deepEqual(Buffer.from(restored.bytes), Buffer.from(original));
   assert.equal(restored.hashVerified, true);
 
-  console.log('PASS FRA1-QR transport and FRA1E round-trip tests');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const ids = [
+    'qrInput','qrPassword','qrGenerate','qrCanvas','qrPlay','qrPause',
+    'qrFrameLabel','qrInterval','qrExport','qrImport','qrImportInput',
+    'qrRestorePassword','qrRestore','qrStatus'
+  ];
+  for (const id of ids) {
+    assert.ok(html.includes(`id="${id}"`), `index.html must contain #${id}`);
+  }
+  const fra1qrScript = html.indexOf('<script src="fra1qr.js"></script>');
+  const appScript = html.indexOf('<script src="app.js"></script>');
+  assert.ok(fra1qrScript >= 0, 'index.html must load fra1qr.js');
+  assert.ok(appScript >= 0, 'index.html must load app.js');
+  assert.ok(fra1qrScript < appScript, 'fra1qr.js must load before app.js');
+
+  console.log('PASS FRA1-QR transport, FRA1E round-trip and web DOM tests');
 })().catch(err => {
   console.error(err);
   process.exit(1);
