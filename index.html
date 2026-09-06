@@ -10,16 +10,17 @@
 h1{font-size:36px;margin:0}.subtitle{color:#6e6e73;margin:6px 0 24px}.card{background:#fff;border:1px solid #d2d2d7;border-radius:16px;padding:18px;margin:14px 0}
 h2{margin:0 0 10px;font-size:20px}.note,.meta{color:#6e6e73;font-size:13px;line-height:1.45}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 button,.fileButton{border:0;border-radius:10px;padding:11px 15px;font-weight:700;background:#0a84ff;color:#fff;cursor:pointer;display:inline-block}button:disabled{opacity:.45;cursor:default}
-.fileInput{position:absolute;width:1px;height:1px;opacity:0}.secondary{background:#e5e5ea;color:#1d1d1f}.ok{color:#177245;font-weight:700}.error{color:#c62828;font-weight:700}
-textarea{width:100%;min-height:110px;resize:vertical;border:1px solid #c7c7cc;border-radius:10px;padding:12px;font:14px ui-monospace,SFMono-Regular,Menlo,monospace;background:#fff;color:#1d1d1f}
-.preview{display:none;max-width:280px;max-height:280px;border-radius:10px;border:1px solid #d2d2d7;margin-top:12px}.fractionBox{background:#f2f2f7;border-radius:10px;padding:12px;font:13px ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.status{margin-top:12px}
-@media(prefers-color-scheme:dark){body{background:#1c1c1e;color:#f5f5f7}.card{background:#2c2c2e;border-color:#48484a}.subtitle,.note,.meta{color:#a1a1a6}textarea{background:#1c1c1e;color:#f5f5f7;border-color:#636366}.secondary{background:#48484a;color:#fff}.fractionBox{background:#1c1c1e}.preview{border-color:#48484a}}
+.fileInput{position:absolute;width:1px;height:1px;opacity:0}.secondary{background:#e5e5ea;color:#1d1d1f}.protected{background:#5e2ca5}.ok{color:#177245;font-weight:700}.error{color:#c62828;font-weight:700}
+textarea,input[type="password"],select{border:1px solid #c7c7cc;border-radius:10px;padding:12px;background:#fff;color:#1d1d1f;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+textarea{width:100%;min-height:110px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}input[type="password"]{min-width:260px;flex:1}select{min-width:150px}
+.preview{display:none;max-width:280px;max-height:280px;border-radius:10px;border:1px solid #d2d2d7;margin-top:12px}.fractionBox{background:#f2f2f7;border-radius:10px;padding:12px;font:13px ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.status{margin-top:12px}.badge{display:inline-block;border-radius:999px;padding:4px 9px;background:#e5e5ea;font-size:12px;font-weight:700}
+@media(prefers-color-scheme:dark){body{background:#1c1c1e;color:#f5f5f7}.card{background:#2c2c2e;border-color:#48484a}.subtitle,.note,.meta{color:#a1a1a6}textarea,input[type="password"],select{background:#1c1c1e;color:#f5f5f7;border-color:#636366}.secondary,.badge{background:#48484a;color:#fff}.fractionBox{background:#1c1c1e}.preview{border-color:#48484a}}
 </style>
 </head>
 <body>
 <main class="wrap">
 <h1>Frazione Lab</h1>
-<p class="subtitle">Testo ⇄ frazione • Foto originale ⇄ FRA1 lossless</p>
+<p class="subtitle">Testo ⇄ frazione • Foto originale ⇄ FRA1 lossless • FRA1E cifrato AES-128/256</p>
 
 <section class="card">
 <h2>Testo → frazione</h2>
@@ -44,12 +45,29 @@ textarea{width:100%;min-height:110px;resize:vertical;border:1px solid #c7c7cc;bo
 </section>
 
 <section class="card">
-<h2>FRA1 → recupera foto originale</h2>
-<p class="note">Carica il file .fra1 generato sopra. Frazione Lab verifica SHA-256 e ricrea il file originale con lo stesso nome, tipo e contenuto byte-per-byte.</p>
+<h2>FRA1E protetto con password</h2>
+<p class="note">Cifra l'intero FRA1 con <strong>AES-GCM</strong>. La password viene trasformata in chiave con PBKDF2-HMAC-SHA256 (600.000 iterazioni). Tutto avviene localmente nel browser: foto e password non vengono inviate a GitHub.</p>
 <div class="row">
-<label class="fileButton" for="fra1Input">SCEGLI FILE .FRA1</label>
-<input class="fileInput" id="fra1Input" type="file" accept=".fra1,application/octet-stream">
-<span id="fra1Info" class="meta">Nessun FRA1 scelto</span>
+<input id="protectPassword" type="password" autocomplete="new-password" placeholder="Password: minimo 12 caratteri, consigliati 16+">
+<select id="aesBits" aria-label="Lunghezza chiave AES"><option value="256" selected>AES-256</option><option value="128">AES-128</option></select>
+</div>
+<div class="row" style="margin-top:12px"><button id="makeFra1e" class="protected" disabled>CREA FRA1E PROTETTO</button><button id="downloadFra1e" class="secondary" disabled>SCARICA .FRA1E</button></div>
+<div id="protectStatus" class="status"></div>
+<div id="protectedDescription" class="fractionBox" style="display:none;margin-top:12px"></div>
+<p class="note">AES-128 e AES-256 producono file della stessa dimensione. FRA1E aggiunge 64 byte al FRA1: la cifratura protegge i dati ma non li comprime.</p>
+</section>
+
+<section class="card">
+<h2>FRA1 / FRA1E → recupera foto originale</h2>
+<p class="note">L'app riconosce automaticamente un FRA1 normale oppure un FRA1E AES-128/AES-256 leggendo l'intestazione interna. Il nome del file non serve per riconoscere la cifratura.</p>
+<div class="row">
+<label class="fileButton" for="fra1Input">SCEGLI .FRA1 / .FRA1E</label>
+<input class="fileInput" id="fra1Input" type="file" accept=".fra1,.fra1e,application/octet-stream">
+<span id="fra1Info" class="meta">Nessun file scelto</span>
+<span id="containerBadge" class="badge" style="display:none"></span>
+</div>
+<div id="restorePasswordRow" class="row" style="display:none;margin-top:12px">
+<input id="restorePassword" type="password" autocomplete="current-password" placeholder="Password del FRA1E">
 </div>
 <div class="row" style="margin-top:12px"><button id="restoreBtn" disabled>RECUPERA ORIGINALE</button><button id="downloadOriginal" class="secondary" disabled>SCARICA ORIGINALE</button></div>
 <img id="restoredPreview" class="preview" alt="Anteprima foto recuperata">
@@ -58,7 +76,7 @@ textarea{width:100%;min-height:110px;resize:vertical;border:1px solid #c7c7cc;bo
 
 <section class="card">
 <h2>Cosa significa “frazione” qui?</h2>
-<p class="note">Il file FRA1 è interpretato come un unico intero binario <strong>N</strong>. Se il pacchetto contiene K bit, la rappresentazione matematica è <strong>N / 2^K</strong>. Per foto grandi non mostriamo N in decimale: avrebbe milioni di cifre. Il file .fra1 conserva N completo in forma binaria, senza perdita.</p>
+<p class="note">Il file FRA1 è interpretato come un unico intero binario <strong>N</strong>. Se il pacchetto contiene K bit, la rappresentazione matematica è <strong>N / 2^K</strong>. Per foto grandi non mostriamo N in decimale: avrebbe milioni di cifre. FRA1E cifra quel pacchetto FRA1 senza perdita.</p>
 </section>
 </main>
 <script src="codec.js"></script>
