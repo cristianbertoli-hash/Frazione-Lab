@@ -3,7 +3,7 @@ name: Test Frazione Lab Web Codec
 on:
   workflow_dispatch:
   push:
-    branches: ["main"]
+    branches: ["main", "feature/fra1e-offline-completion"]
     paths:
       - "codec.js"
       - "tests/**"
