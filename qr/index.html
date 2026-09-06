@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FRA1-QR v0</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:light dark}
+*{box-sizing:border-box}body{margin:0;background:#f5f5f7;color:#1d1d1f}.wrap{max-width:980px;margin:auto;padding:28px 18px 60px}
+h1{font-size:36px;margin:0}.subtitle{color:#6e6e73;margin:6px 0 24px}.card{background:#fff;border:1px solid #d2d2d7;border-radius:16px;padding:18px;margin:14px 0}
+h2{margin:0 0 10px;font-size:20px}.note,.meta{color:#6e6e73;font-size:13px;line-height:1.5}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button,.fileButton{border:0;border-radius:10px;padding:11px 15px;font-weight:700;background:#0a84ff;color:#fff;cursor:pointer;display:inline-block}.secondary{background:#e5e5ea;color:#1d1d1f}.protected{background:#5e2ca5}button:disabled{opacity:.45;cursor:default}
+.fileInput{position:absolute;width:1px;height:1px;opacity:0}input[type="password"],select{border:1px solid #c7c7cc;border-radius:10px;padding:12px;background:#fff;color:#1d1d1f;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}input[type="password"]{min-width:260px;flex:1}select{min-width:140px}
+.status{margin-top:12px}.ok{color:#177245;font-weight:700}.error{color:#c62828;font-weight:700}.qrStage{display:none;text-align:center;margin-top:16px}.qrBox{display:inline-block;max-width:100%;background:#fff;padding:10px;border-radius:12px;border:1px solid #d2d2d7;overflow:auto}.qrBox img,.qrBox canvas{width:min(800px,82vw)!important;height:auto!important;image-rendering:pixelated}.frameLabel{font-weight:700;margin:10px 0}.back{display:inline-block;margin-top:12px;color:#0a84ff;text-decoration:none;font-weight:700}
+@media(prefers-color-scheme:dark){body{background:#1c1c1e;color:#f5f5f7}.card{background:#2c2c2e;border-color:#48484a}.subtitle,.note,.meta{color:#a1a1a6}input[type="password"],select{background:#1c1c1e;color:#f5f5f7;border-color:#636366}.secondary{background:#48484a;color:#fff}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<h1>FRA1-QR v0</h1>
+<p class="subtitle">Esperimento separato: file fino a 100 KB → FRA1E AES-256 → sequenza di QR standard bianco/nero.</p>
+
+<section class="card">
+<h2>1. Crea la sequenza QR cifrata</h2>
+<p class="note">Il file viene prima impacchettato in FRA1 e poi cifrato con AES-GCM 256 bit. Solo dopo viene suddiviso nei QR. Non è compressione: è un metodo visuale di trasporto dei dati cifrati.</p>
+<div class="row">
+<label class="fileButton" for="qrInput">SCEGLI FILE</label>
+<input class="fileInput" id="qrInput" type="file">
+<span id="qrInputInfo" class="meta">Nessun file scelto</span>
+</div>
+<div class="row" style="margin-top:12px">
+<input id="qrPassword" type="password" autocomplete="new-password" placeholder="Password: minimo 12 caratteri, consigliati 16+">
+<button id="qrGenerate" class="protected" disabled>GENERA QR CIFRATI</button>
+</div>
+<div class="row" style="margin-top:12px">
+<button id="qrPlay" disabled>AVVIA</button>
+<button id="qrPause" class="secondary" disabled>PAUSA</button>
+<select id="qrInterval" aria-label="Velocità animazione"><option value="250">250 ms</option><option value="350" selected>350 ms</option><option value="500">500 ms</option></select>
+<button id="qrExport" class="secondary" disabled>ESPORTA SET JSON</button>
+</div>
+<div id="qrStage" class="qrStage">
+<div id="qrCanvas" class="qrBox"></div>
+<div id="qrFrameLabel" class="frameLabel">Nessun frame</div>
+</div>
+</section>
+
+<section class="card">
+<h2>2. Importa e recupera l'originale</h2>
+<p class="note">Per questa v0 l'acquisizione dalla fotocamera non è ancora inclusa. Il set dei frame può essere esportato/importato come JSON per verificare che la sequenza ricostruisca esattamente il FRA1E cifrato.</p>
+<div class="row">
+<button id="qrImport">IMPORTA SET JSON</button>
+<input class="fileInput" id="qrImportInput" type="file" accept=".json,application/json">
+<input id="qrRestorePassword" type="password" autocomplete="current-password" placeholder="Password del FRA1E">
+<button id="qrRestore" class="protected" disabled>RECUPERA ORIGINALE</button>
+<button id="qrDownload" class="secondary" disabled>SCARICA ORIGINALE</button>
+</div>
+<div id="qrStatus" class="status">Pronto. Tutto il contenuto del file resta nel browser.</div>
+</section>
+
+<section class="card">
+<h2>Privacy e limiti della v0</h2>
+<p class="note">I dati del file e la password non vengono inviati dall'applicazione. Il renderer QR viene caricato online da cdnjs in versione fissata 1.0.0. Il QR non aumenta la sicurezza e non riduce il peso: la protezione deriva dal FRA1E AES-256 sottostante.</p>
+<a class="back" href="../">← Apri Frazione Lab normale</a>
+</section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="../codec.js"></script>
+<script src="fra1qr.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
