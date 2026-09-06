@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Frazione Lab</title>
+  <style>
+:root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #f5f5f7; color: #1d1d1f; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 28px; }
+h1 { margin: 0; font-size: 34px; }
+.subtitle { margin-top: 6px; color: #6e6e73; }
+.card { border: 1px solid #d2d2d7; border-radius: 14px; padding: 18px; margin: 16px 0; background: #ffffff; }
+h2 { margin: 0 0 12px; font-size: 19px; }
+textarea { width: 100%; resize: vertical; border-radius: 9px; padding: 12px; font: 15px ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid #c7c7cc; background: #ffffff; color: #1d1d1f; }
+button, .fileButton { appearance: none; border: 0; border-radius: 9px; padding: 11px 15px; margin-top: 10px; font-weight: 700; cursor: pointer; background: #0a84ff; color: #ffffff; display: inline-block; }
+button:disabled { opacity: .42; cursor: default; }
+#photoInput { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.photoRow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.photoRow .fileButton { margin-top: 0; }
+#photoPreview, #decodedImage { display: none; margin-top: 14px; max-width: 256px; max-height: 256px; image-rendering: pixelated; border-radius: 8px; border: 1px solid #d2d2d7; }
+.note, .info { color: #6e6e73; font-size: 13px; line-height: 1.45; }
+.buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+.decoded { white-space: pre-wrap; font-size: 16px; min-height: 24px; }
+.status { margin-top: 12px; font-weight: 600; }
+.status.error { color: #c62828; }
+@media (prefers-color-scheme: dark) {
+  body { background: #1c1c1e; color: #f5f5f7; }
+  .subtitle, .note, .info { color: #a1a1a6; }
+  .card { background: #2c2c2e; border-color: #48484a; }
+  textarea { background: #1c1c1e; color: #f5f5f7; border-color: #636366; }
+  #photoPreview, #decodedImage { border-color: #48484a; }
+  .status.error { color: #ff8a80; }
+}
+
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>Frazione Lab</h1>
+    <p class="subtitle">Testo o piccola foto ⇄ un'unica frazione esatta</p>
+
+    <section class="card">
+      <h2>1. Testo</h2>
+      <textarea id="textInput" rows="4" placeholder="Scrivi una frase…">Ciao Cris</textarea>
+      <button id="encodeTextBtn">CODIFICA TESTO → FRAZIONE</button>
+    </section>
+
+    <section class="card">
+      <h2>2. Foto</h2>
+      <div class="photoRow">
+        <label class="fileButton" for="photoInput">SCEGLI FOTO</label>
+        <input id="photoInput" type="file" accept="image/*">
+        <span id="photoInfo">Nessuna foto scelta</span>
+      </div>
+      <canvas id="photoPreview" width="1" height="1"></canvas>
+      <button id="encodePhotoBtn" disabled>CODIFICA FOTO → FRAZIONE</button>
+      <p class="note">Per la dimostrazione la foto viene ridotta a massimo 64×64 pixel. I pixel RGBA ridotti vengono poi ricostruiti esattamente.</p>
+    </section>
+
+    <section class="card fractionCard">
+      <h2>3. Frazione</h2>
+      <textarea id="fractionInput" rows="10" spellcheck="false" placeholder="Qui compare, o puoi incollare, N / 2^K"></textarea>
+      <div class="buttons">
+        <button id="copyBtn">COPIA FRAZIONE</button>
+        <button id="decodeBtn">FRAZIONE → DECODIFICA</button>
+      </div>
+      <div id="fractionInfo" class="info"></div>
+    </section>
+
+    <section class="card">
+      <h2>4. Risultato decodificato</h2>
+      <pre id="decodedText" class="decoded"></pre>
+      <canvas id="decodedImage" width="1" height="1"></canvas>
+      <div id="status" class="status">Pronto.</div>
+    </section>
+  </main>
+  <script>
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  root.FractionCodec = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+
+  const MAGIC = [0x46, 0x52, 0x41, 0x31]; // FRA1
+  const TYPE_TEXT = 1;
+  const TYPE_IMAGE = 2;
+  const MAX_PACKET_BYTES = 2_000_000;
+
+  function setU32BE(out, offset, value) {
+    out[offset] = (value >>> 24) & 255;
+    out[offset + 1] = (value >>> 16) & 255;
+    out[offset + 2] = (value >>> 8) & 255;
+    out[offset + 3] = value & 255;
+  }
+
+  function getU32BE(bytes, offset) {
+    return (((bytes[offset] << 24) >>> 0) +
+      (bytes[offset + 1] << 16) +
+      (bytes[offset + 2] << 8) +
+      bytes[offset + 3]) >>> 0;
+  }
+
+  function setU16BE(out, offset, value) {
+    out[offset] = (value >>> 8) & 255;
+    out[offset + 1] = value & 255;
+  }
+
+  function getU16BE(bytes, offset) {
+    return (bytes[offset] << 8) | bytes[offset + 1];
+  }
+
+  function makePacket(type, payload) {
+    if (!(payload instanceof Uint8Array)) payload = Uint8Array.from(payload);
+    const packet = new Uint8Array(9 + payload.length);
+    packet.set(MAGIC, 0);
+    packet[4] = type;
+    setU32BE(packet, 5, payload.length);
+    packet.set(payload, 9);
+    return packet;
+  }
+
+  function bytesToBigInt(bytes) {
+    if (bytes.length === 0) return 0n;
+    let hex = '';
+    for (const b of bytes) hex += b.toString(16).padStart(2, '0');
+    return BigInt('0x' + hex);
+  }
+
+  function bigIntToBytes(value, length) {
+    if (value < 0n) throw new Error('Numero negativo non valido');
+    let hex = value.toString(16);
+    if (hex.length > length * 2) throw new Error('Il numeratore non entra nella lunghezza indicata');
+    hex = hex.padStart(length * 2, '0');
+    const out = new Uint8Array(length);
+    for (let i = 0; i < length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  }
+
+  function packetToFraction(packet) {
+    const n = bytesToBigInt(packet);
+    const k = packet.length * 8;
+    return `${n.toString()} / 2^${k}`;
+  }
+
+  function parseFraction(value) {
+    const match = /^\s*(\d+)\s*\/\s*2\^(\d+)\s*$/.exec(String(value));
+    if (!match) throw new Error('Formato frazione non valido: usa N / 2^K');
+    const k = Number(match[2]);
+    if (!Number.isSafeInteger(k) || k <= 0 || k % 8 !== 0) {
+      throw new Error('L’esponente K deve essere positivo e multiplo di 8');
+    }
+    const length = k / 8;
+    if (length > MAX_PACKET_BYTES) throw new Error('Frazione troppo grande per questa app');
+    const n = BigInt(match[1]);
+    if (n >= (1n << BigInt(k))) throw new Error('Numeratore incompatibile con l’esponente');
+    return bigIntToBytes(n, length);
+  }
+
+  function validateAndSplit(packet) {
+    if (packet.length < 9) throw new Error('Pacchetto FRA1 troppo corto');
+    for (let i = 0; i < 4; i++) if (packet[i] !== MAGIC[i]) throw new Error('Firma FRA1 non valida');
+    const type = packet[4];
+    const payloadLength = getU32BE(packet, 5);
+    if (payloadLength !== packet.length - 9) throw new Error('Lunghezza payload FRA1 non valida');
+    return { type, payload: packet.slice(9) };
+  }
+
+  function encodeText(text) {
+    const payload = new TextEncoder().encode(String(text));
+    return packetToFraction(makePacket(TYPE_TEXT, payload));
+  }
+
+  function encodeImage(width, height, rgba) {
+    width = Number(width);
+    height = Number(height);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 || width > 65535 || height > 65535) {
+      throw new Error('Dimensioni immagine non valide');
+    }
+    if (!(rgba instanceof Uint8Array)) rgba = Uint8Array.from(rgba);
+    const expected = width * height * 4;
+    if (rgba.length !== expected) throw new Error(`RGBA non valido: attesi ${expected} byte`);
+    const payload = new Uint8Array(4 + rgba.length);
+    setU16BE(payload, 0, width);
+    setU16BE(payload, 2, height);
+    payload.set(rgba, 4);
+    return packetToFraction(makePacket(TYPE_IMAGE, payload));
+  }
+
+  function decodeFraction(fraction) {
+    const packet = parseFraction(fraction);
+    const { type, payload } = validateAndSplit(packet);
+    if (type === TYPE_TEXT) {
+      try {
+        return { type: 'text', text: new TextDecoder('utf-8', { fatal: true }).decode(payload), packetBytes: packet.length };
+      } catch (e) {
+        throw new Error('Testo UTF-8 non valido');
+      }
+    }
+    if (type === TYPE_IMAGE) {
+      if (payload.length < 4) throw new Error('Payload immagine troppo corto');
+      const width = getU16BE(payload, 0);
+      const height = getU16BE(payload, 2);
+      if (width <= 0 || height <= 0) throw new Error('Dimensioni immagine non valide');
+      const expected = 4 + width * height * 4;
+      if (payload.length !== expected) throw new Error('Lunghezza RGBA non valida');
+      return { type: 'image', width, height, rgba: payload.slice(4), packetBytes: packet.length };
+    }
+    throw new Error('Tipo FRA1 sconosciuto');
+  }
+
+  function inspectFraction(fraction) {
+    const packet = parseFraction(fraction);
+    return { packetBytes: packet.length, bits: packet.length * 8, decimalDigits: bytesToBigInt(packet).toString().length };
+  }
+
+  return { TYPE_TEXT, TYPE_IMAGE, encodeText, encodeImage, decodeFraction, inspectFraction };
+});
+
+</script>
+  <script>
+'use strict';
+const MAX_IMAGE_SIDE = 64;
+let selectedImage = null;
+
+const $ = (id) => document.getElementById(id);
+const textInput = $('textInput');
+const photoInput = $('photoInput');
+const photoPreview = $('photoPreview');
+const photoInfo = $('photoInfo');
+const encodePhotoBtn = $('encodePhotoBtn');
+const fractionInput = $('fractionInput');
+const fractionInfo = $('fractionInfo');
+const decodedText = $('decodedText');
+const decodedImage = $('decodedImage');
+const status = $('status');
+
+function setStatus(message, error = false) {
+  status.textContent = message;
+  status.className = error ? 'status error' : 'status';
+}
+
+function fitSize(width, height, maxSide) {
+  const scale = Math.min(1, maxSide / Math.max(width, height));
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+function canvasRgba(canvas) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  return new Uint8Array(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+}
+
+function updateFractionInfo(fraction) {
+  try {
+    const i = FractionCodec.inspectFraction(fraction);
+    fractionInfo.textContent = `${i.packetBytes.toLocaleString('it-IT')} byte • ${i.bits.toLocaleString('it-IT')} bit • numeratore: ${i.decimalDigits.toLocaleString('it-IT')} cifre decimali`;
+  } catch (_) {
+    fractionInfo.textContent = '';
+  }
+}
+
+function setFraction(value) {
+  fractionInput.value = value;
+  updateFractionInfo(value);
+  fractionInput.scrollTop = 0;
+}
+
+$('encodeTextBtn').addEventListener('click', () => {
+  try {
+    setFraction(FractionCodec.encodeText(textInput.value));
+    setStatus('Testo codificato nella frazione FRA1.');
+  } catch (e) { setStatus(e.message, true); }
+});
+
+photoInput.addEventListener('change', () => {
+  const file = photoInput.files && photoInput.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => setStatus('Impossibile leggere la foto.', true);
+  reader.onload = () => {
+    const img = new Image();
+    img.onerror = () => setStatus('Il file scelto non è un’immagine leggibile.', true);
+    img.onload = () => {
+      const size = fitSize(img.naturalWidth, img.naturalHeight, MAX_IMAGE_SIDE);
+      photoPreview.width = size.width;
+      photoPreview.height = size.height;
+      const ctx = photoPreview.getContext('2d', { willReadFrequently: true });
+      ctx.clearRect(0, 0, size.width, size.height);
+      ctx.drawImage(img, 0, 0, size.width, size.height);
+      photoPreview.style.display = 'block';
+      selectedImage = { width: size.width, height: size.height, rgba: canvasRgba(photoPreview) };
+      photoInfo.textContent = `${file.name} → ${size.width}×${size.height} px`;
+      encodePhotoBtn.disabled = false;
+      setStatus('Foto pronta per essere trasformata in frazione.');
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+encodePhotoBtn.addEventListener('click', () => {
+  if (!selectedImage) return;
+  try {
+    setFraction(FractionCodec.encodeImage(selectedImage.width, selectedImage.height, selectedImage.rgba));
+    setStatus(`Foto ${selectedImage.width}×${selectedImage.height} codificata esattamente come pixel RGBA.`);
+  } catch (e) { setStatus(e.message, true); }
+});
+
+fractionInput.addEventListener('input', () => updateFractionInfo(fractionInput.value));
+
+$('copyBtn').addEventListener('click', async () => {
+  if (!fractionInput.value.trim()) return setStatus('Non c’è ancora una frazione da copiare.', true);
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(fractionInput.value);
+    } else {
+      fractionInput.focus(); fractionInput.select(); document.execCommand('copy');
+    }
+    setStatus('Frazione copiata negli appunti.');
+  } catch (_) {
+    fractionInput.focus(); fractionInput.select(); document.execCommand('copy');
+    setStatus('Frazione copiata negli appunti.');
+  }
+});
+
+$('decodeBtn').addEventListener('click', () => {
+  decodedText.textContent = '';
+  decodedImage.style.display = 'none';
+  try {
+    const d = FractionCodec.decodeFraction(fractionInput.value);
+    if (d.type === 'text') {
+      decodedText.textContent = d.text;
+      setStatus(`Testo ricostruito esattamente da ${d.packetBytes.toLocaleString('it-IT')} byte FRA1.`);
+    } else {
+      decodedImage.width = d.width;
+      decodedImage.height = d.height;
+      const ctx = decodedImage.getContext('2d');
+      const data = new ImageData(new Uint8ClampedArray(d.rgba), d.width, d.height);
+      ctx.putImageData(data, 0, 0);
+      decodedImage.style.display = 'block';
+      setStatus(`Immagine ${d.width}×${d.height} ricostruita esattamente dalla frazione.`);
+    }
+  } catch (e) { setStatus(e.message, true); }
+});
+
+</script>
+</body>
+</html>
