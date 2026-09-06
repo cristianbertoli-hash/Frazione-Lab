@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -27,8 +28,8 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private static final int OPEN_ORIGINAL = 10;
-    private static final int SAVE_FRA1 = 11;
-    private static final int OPEN_FRA1 = 12;
+    private static final int SAVE_CONTAINER = 11;
+    private static final int OPEN_CONTAINER = 12;
     private static final int SAVE_ORIGINAL = 13;
     private static final int MAX_FILE_BYTES = 100 * 1024 * 1024;
 
@@ -38,7 +39,11 @@ public class MainActivity extends Activity {
     private byte[] originalBytes;
     private String originalName;
     private String originalMime;
-    private byte[] pendingFra1;
+    private byte[] pendingContainer;
+    private String pendingContainerName;
+
+    private byte[] loadedContainer;
+    private Fra1Codec.ContainerInfo loadedInfo;
     private Fra1Codec.OriginalFile restored;
 
     private TextView originalInfo;
@@ -46,7 +51,12 @@ public class MainActivity extends Activity {
     private TextView restoreInfo;
     private TextView restoreStatus;
     private Button makeFra1Button;
+    private Button makeFra1e128Button;
+    private Button makeFra1e256Button;
+    private Button decryptButton;
     private Button saveOriginalButton;
+    private EditText encryptPassword;
+    private EditText decryptPassword;
     private EditText textBox;
     private EditText fractionBox;
     private TextView textStatus;
@@ -73,36 +83,65 @@ public class MainActivity extends Activity {
 
         TextView title = text("Frazione Lab", 30, true);
         root.addView(title);
-        TextView subtitle = text("Offline • nessun permesso Internet • FRA1 lossless", 14, false);
+        TextView subtitle = text("Offline • FRA1 lossless • FRA1E AES-128/256", 14, false);
         subtitle.setTextColor(Color.DKGRAY);
         root.addView(subtitle, marginBottom(18));
 
-        sectionTitle(root, "Foto originale → FRA1");
+        sectionTitle(root, "Foto originale → FRA1 / FRA1E");
         root.addView(text("Il file viene letto byte-per-byte. Nessun ridimensionamento, ricampionamento o upload.", 14, false));
         Button chooseOriginal = button("SCEGLI FOTO ORIGINALE");
         chooseOriginal.setOnClickListener(v -> openOriginal());
         root.addView(chooseOriginal, marginTop(10));
         originalInfo = text("Nessuna foto scelta", 14, false);
         root.addView(originalInfo, marginTop(8));
+
         makeFra1Button = button("CREA E SALVA .FRA1");
         makeFra1Button.setEnabled(false);
-        makeFra1Button.setOnClickListener(v -> createFra1AndSave());
+        makeFra1Button.setOnClickListener(v -> createAndSaveContainer(false, 0));
         root.addView(makeFra1Button, marginTop(10));
+
+        root.addView(text("Protezione con password (la password non viene salvata):", 14, true), marginTop(14));
+        encryptPassword = passwordEdit("Password per FRA1E");
+        root.addView(encryptPassword, marginTop(6));
+
+        LinearLayout cryptoRow = new LinearLayout(this);
+        cryptoRow.setOrientation(LinearLayout.HORIZONTAL);
+        makeFra1e128Button = button("FRA1E AES-128");
+        makeFra1e256Button = button("FRA1E AES-256");
+        makeFra1e128Button.setEnabled(false);
+        makeFra1e256Button.setEnabled(false);
+        makeFra1e128Button.setOnClickListener(v -> createAndSaveContainer(true, 128));
+        makeFra1e256Button.setOnClickListener(v -> createAndSaveContainer(true, 256));
+        cryptoRow.addView(makeFra1e128Button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout.LayoutParams cryptoSecond = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        cryptoSecond.leftMargin = dp(8);
+        cryptoRow.addView(makeFra1e256Button, cryptoSecond);
+        root.addView(cryptoRow, marginTop(8));
+        root.addView(text("FRA1E usa AES-GCM autenticato e PBKDF2-SHA-256 (600.000 iterazioni). AES-128 e AES-256 hanno lo stesso overhead: 64 byte.", 12, false), marginTop(6));
+
         originalStatus = statusView();
         root.addView(originalStatus, marginTop(8));
 
         divider(root);
-        sectionTitle(root, "FRA1 → recupera originale");
-        root.addView(text("Carica un .fra1. L'app verifica SHA-256 e propone il nome e l'estensione originali.", 14, false));
-        Button chooseFra1 = button("SCEGLI FILE .FRA1");
-        chooseFra1.setOnClickListener(v -> openFra1());
-        root.addView(chooseFra1, marginTop(10));
-        restoreInfo = text("Nessun FRA1 scelto", 14, false);
+        sectionTitle(root, "FRA1 / FRA1E → recupera originale");
+        root.addView(text("L'app riconosce automaticamente FRA1 normale oppure FRA1E AES-128/AES-256 leggendo l'intestazione del file.", 14, false));
+        Button chooseContainer = button("SCEGLI FILE .FRA1 / .FRA1E");
+        chooseContainer.setOnClickListener(v -> openContainer());
+        root.addView(chooseContainer, marginTop(10));
+        restoreInfo = text("Nessun file scelto", 14, false);
         root.addView(restoreInfo, marginTop(8));
+
+        decryptPassword = passwordEdit("Password (solo se FRA1E)");
+        root.addView(decryptPassword, marginTop(8));
+        decryptButton = button("DECIFRA FRA1E");
+        decryptButton.setEnabled(false);
+        decryptButton.setOnClickListener(v -> decryptLoadedContainer());
+        root.addView(decryptButton, marginTop(8));
+
         saveOriginalButton = button("RECUPERA E SALVA ORIGINALE");
         saveOriginalButton.setEnabled(false);
         saveOriginalButton.setOnClickListener(v -> saveRestored());
-        root.addView(saveOriginalButton, marginTop(10));
+        root.addView(saveOriginalButton, marginTop(8));
         restoreStatus = statusView();
         root.addView(restoreStatus, marginTop(8));
 
@@ -128,17 +167,17 @@ public class MainActivity extends Activity {
             try {
                 fractionBox.setText(Fra1Codec.encodeTextFraction(textBox.getText().toString()));
                 setStatus(textStatus, "Testo codificato.", false);
-            } catch (Exception e) { setStatus(textStatus, e.getMessage(), true); }
+            } catch (Exception e) { setStatus(textStatus, message(e), true); }
         });
         decodeText.setOnClickListener(v -> {
             try {
                 textBox.setText(Fra1Codec.decodeTextFraction(fractionBox.getText().toString()));
                 setStatus(textStatus, "Frazione decodificata.", false);
-            } catch (Exception e) { setStatus(textStatus, e.getMessage(), true); }
+            } catch (Exception e) { setStatus(textStatus, message(e), true); }
         });
 
         divider(root);
-        TextView privacy = text("PRIVACY: questa app non dichiara il permesso INTERNET. I file restano sul dispositivo salvo quando scegli tu dove salvarli o condividerli.", 13, true);
+        TextView privacy = text("PRIVACY: questa app non dichiara il permesso INTERNET. Foto, FRA1, FRA1E e password restano sul dispositivo salvo quando scegli tu dove salvare o condividere i file.", 13, true);
         root.addView(privacy);
         setContentView(scroll);
     }
@@ -150,34 +189,54 @@ public class MainActivity extends Activity {
         startActivityForResult(i, OPEN_ORIGINAL);
     }
 
-    private void openFra1() {
+    private void openContainer() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("*/*");
-        startActivityForResult(i, OPEN_FRA1);
+        startActivityForResult(i, OPEN_CONTAINER);
     }
 
-    private void createFra1AndSave() {
+    private void createAndSaveContainer(boolean encrypted, int keyBits) {
         if (originalBytes == null) return;
-        makeFra1Button.setEnabled(false);
-        setStatus(originalStatus, "Calcolo SHA-256 e creo FRA1…", false);
+        final String password = encryptPassword.getText().toString();
+        if (encrypted && password.isEmpty()) {
+            setStatus(originalStatus, "Inserisci una password prima di creare FRA1E.", true);
+            return;
+        }
+        setCreateButtonsEnabled(false);
+        setStatus(originalStatus, encrypted ? "Creo FRA1 e cifro con AES-" + keyBits + "…" : "Calcolo SHA-256 e creo FRA1…", false);
         worker.execute(() -> {
             try {
-                byte[] packet = Fra1Codec.packOriginalFile(originalName, originalMime, originalBytes);
-                pendingFra1 = packet;
+                byte[] fra1 = Fra1Codec.packOriginalFile(originalName, originalMime, originalBytes);
+                byte[] packet = encrypted ? Fra1Codec.encryptFra1(fra1, password, keyBits) : fra1;
+                pendingContainer = packet;
+                pendingContainerName = originalName + (encrypted ? ".fra1e" : ".fra1");
+                int overhead = packet.length - fra1.length;
                 main.post(() -> {
-                    makeFra1Button.setEnabled(true);
-                    setStatus(originalStatus, "FRA1 creato. Scegli dove salvarlo.", false);
-                    Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-                    save.addCategory(Intent.CATEGORY_OPENABLE);
-                    save.setType("application/octet-stream");
-                    save.putExtra(Intent.EXTRA_TITLE, originalName + ".fra1");
-                    startActivityForResult(save, SAVE_FRA1);
+                    setCreateButtonsEnabled(true);
+                    if (encrypted) {
+                        setStatus(originalStatus, "FRA1E AES-" + keyBits + " creato • " + sizeText(packet.length) + " • overhead cifratura " + overhead + " byte. Scegli dove salvarlo.", false);
+                    } else {
+                        setStatus(originalStatus, "FRA1 creato • " + sizeText(packet.length) + ". Scegli dove salvarlo.", false);
+                    }
+                    launchSaveContainer();
                 });
             } catch (Exception e) {
-                main.post(() -> { makeFra1Button.setEnabled(true); setStatus(originalStatus, message(e), true); });
+                main.post(() -> {
+                    setCreateButtonsEnabled(true);
+                    setStatus(originalStatus, message(e), true);
+                });
             }
         });
+    }
+
+    private void launchSaveContainer() {
+        if (pendingContainer == null || pendingContainerName == null) return;
+        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        save.addCategory(Intent.CATEGORY_OPENABLE);
+        save.setType("application/octet-stream");
+        save.putExtra(Intent.EXTRA_TITLE, pendingContainerName);
+        startActivityForResult(save, SAVE_CONTAINER);
     }
 
     private void saveRestored() {
@@ -195,15 +254,16 @@ public class MainActivity extends Activity {
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         if (requestCode == OPEN_ORIGINAL) loadOriginal(uri);
-        else if (requestCode == SAVE_FRA1) writeBytes(uri, pendingFra1, originalStatus, "FRA1 salvato.");
-        else if (requestCode == OPEN_FRA1) loadFra1(uri);
+        else if (requestCode == SAVE_CONTAINER) writeBytes(uri, pendingContainer, originalStatus, pendingContainerName + " salvato.");
+        else if (requestCode == OPEN_CONTAINER) loadContainer(uri);
         else if (requestCode == SAVE_ORIGINAL && restored != null) writeBytes(uri, restored.bytes, restoreStatus, "Originale salvato byte-per-byte ✓");
     }
 
     private void loadOriginal(Uri uri) {
         originalBytes = null;
-        pendingFra1 = null;
-        makeFra1Button.setEnabled(false);
+        pendingContainer = null;
+        pendingContainerName = null;
+        setCreateButtonsEnabled(false);
         String name = displayName(uri);
         String mime = getContentResolver().getType(uri);
         originalName = (name == null || name.isEmpty()) ? "foto" : name;
@@ -216,7 +276,7 @@ public class MainActivity extends Activity {
                 String hash = Fra1Codec.sha256Hex(bytes);
                 main.post(() -> {
                     originalInfo.setText(originalName + " • " + sizeText(bytes.length) + " • " + originalMime);
-                    makeFra1Button.setEnabled(true);
+                    setCreateButtonsEnabled(true);
                     setStatus(originalStatus, "Pronta • SHA-256 " + shortHash(hash), false);
                 });
             } catch (Exception e) {
@@ -225,26 +285,80 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void loadFra1(Uri uri) {
+    private void loadContainer(Uri uri) {
+        loadedContainer = null;
+        loadedInfo = null;
         restored = null;
+        decryptButton.setEnabled(false);
         saveOriginalButton.setEnabled(false);
         String selectedName = displayName(uri);
-        restoreInfo.setText((selectedName == null ? "FRA1" : selectedName) + " • verifica in corso…");
-        setStatus(restoreStatus, "Verifica SHA-256…", false);
+        restoreInfo.setText((selectedName == null ? "File" : selectedName) + " • analisi in corso…");
+        setStatus(restoreStatus, "Riconosco automaticamente il formato…", false);
         worker.execute(() -> {
             try {
                 byte[] packet = readBytes(uri, MAX_FILE_BYTES + 1024 * 1024);
-                Fra1Codec.OriginalFile decoded = Fra1Codec.unpackOriginalFile(packet);
-                restored = decoded;
-                main.post(() -> {
-                    restoreInfo.setText(decoded.name + " • " + sizeText(decoded.bytes.length) + " • " + decoded.mime);
-                    saveOriginalButton.setEnabled(true);
-                    setStatus(restoreStatus, "SHA-256 verificato ✓ • file identico pronto da salvare.", false);
-                });
+                Fra1Codec.ContainerInfo info = Fra1Codec.inspectContainer(packet);
+                if ("unknown".equals(info.kind)) throw new Fra1Codec.Fra1Exception("Il file non è FRA1/FRA1E riconosciuto");
+                loadedContainer = packet;
+                loadedInfo = info;
+                if (info.encrypted) {
+                    main.post(() -> {
+                        restoreInfo.setText((selectedName == null ? "FRA1E" : selectedName) + " • " + sizeText(packet.length) + " • AES-" + info.keyBits);
+                        decryptButton.setEnabled(true);
+                        setStatus(restoreStatus, "FRA1E AES-" + info.keyBits + " riconosciuto automaticamente • PBKDF2 " + info.iterations + " iterazioni. Inserisci la password.", false);
+                    });
+                } else {
+                    Fra1Codec.OriginalFile decoded = Fra1Codec.unpackOriginalFile(packet);
+                    restored = decoded;
+                    main.post(() -> showRestored(decoded, "FRA1 normale riconosciuto • SHA-256 verificato ✓"));
+                }
             } catch (Exception e) {
                 main.post(() -> setStatus(restoreStatus, message(e), true));
             }
         });
+    }
+
+    private void decryptLoadedContainer() {
+        if (loadedContainer == null || loadedInfo == null || !loadedInfo.encrypted) return;
+        final String password = decryptPassword.getText().toString();
+        if (password.isEmpty()) {
+            setStatus(restoreStatus, "Inserisci la password del FRA1E.", true);
+            return;
+        }
+        decryptButton.setEnabled(false);
+        saveOriginalButton.setEnabled(false);
+        setStatus(restoreStatus, "Derivo la chiave e decifro AES-" + loadedInfo.keyBits + "…", false);
+        worker.execute(() -> {
+            try {
+                byte[] fra1 = Fra1Codec.decryptFra1(loadedContainer, password);
+                Fra1Codec.OriginalFile decoded = Fra1Codec.unpackOriginalFile(fra1);
+                restored = decoded;
+                main.post(() -> {
+                    decryptButton.setEnabled(true);
+                    showRestored(decoded, "Password corretta • AES-" + loadedInfo.keyBits + " decifrato • SHA-256 verificato ✓");
+                });
+            } catch (Exception e) {
+                restored = null;
+                main.post(() -> {
+                    decryptButton.setEnabled(true);
+                    saveOriginalButton.setEnabled(false);
+                    setStatus(restoreStatus, message(e), true);
+                });
+            }
+        });
+    }
+
+    private void showRestored(Fra1Codec.OriginalFile decoded, String status) {
+        restoreInfo.setText(decoded.name + " • " + sizeText(decoded.bytes.length) + " • " + decoded.mime);
+        saveOriginalButton.setEnabled(true);
+        setStatus(restoreStatus, status + " • file identico byte-per-byte pronto da salvare.", false);
+    }
+
+    private void setCreateButtonsEnabled(boolean enabled) {
+        boolean ready = enabled && originalBytes != null;
+        makeFra1Button.setEnabled(ready);
+        makeFra1e128Button.setEnabled(ready);
+        makeFra1e256Button.setEnabled(ready);
     }
 
     private void writeBytes(Uri uri, byte[] bytes, TextView target, String success) {
@@ -304,18 +418,51 @@ public class MainActivity extends Activity {
     private TextView statusView() { return text("", 14, true); }
     private void sectionTitle(LinearLayout root, String s) { root.addView(text(s, 21, true), marginBottom(8)); }
     private TextView text(String s, int sp, boolean bold) {
-        TextView v = new TextView(this); v.setText(s); v.setTextSize(sp); v.setTextColor(Color.rgb(28,28,30));
-        if (bold) v.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); return v;
+        TextView v = new TextView(this);
+        v.setText(s);
+        v.setTextSize(sp);
+        v.setTextColor(Color.rgb(28, 28, 30));
+        if (bold) v.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        return v;
     }
     private EditText edit(String hint, int lines) {
-        EditText e = new EditText(this); e.setHint(hint); e.setMinLines(lines); e.setGravity(Gravity.TOP | Gravity.START); e.setTextSize(14); e.setPadding(dp(12),dp(10),dp(12),dp(10)); return e;
+        EditText e = new EditText(this);
+        e.setHint(hint);
+        e.setMinLines(lines);
+        e.setGravity(Gravity.TOP | Gravity.START);
+        e.setTextSize(14);
+        e.setPadding(dp(12), dp(10), dp(12), dp(10));
+        return e;
     }
-    private Button button(String s) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); return b; }
+    private EditText passwordEdit(String hint) {
+        EditText e = edit(hint, 1);
+        e.setSingleLine(true);
+        e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        return e;
+    }
+    private Button button(String s) {
+        Button b = new Button(this);
+        b.setText(s);
+        b.setAllCaps(false);
+        return b;
+    }
     private void divider(LinearLayout root) {
-        View v = new View(this); v.setBackgroundColor(Color.LTGRAY);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)); p.topMargin=dp(22); p.bottomMargin=dp(22); root.addView(v,p);
+        View v = new View(this);
+        v.setBackgroundColor(Color.LTGRAY);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+        p.topMargin = dp(22);
+        p.bottomMargin = dp(22);
+        root.addView(v, p);
     }
-    private LinearLayout.LayoutParams marginTop(int value) { LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); p.topMargin=dp(value); return p; }
-    private LinearLayout.LayoutParams marginBottom(int value) { LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); p.bottomMargin=dp(value); return p; }
+    private LinearLayout.LayoutParams marginTop(int value) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        p.topMargin = dp(value);
+        return p;
+    }
+    private LinearLayout.LayoutParams marginBottom(int value) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        p.bottomMargin = dp(value);
+        return p;
+    }
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 }
