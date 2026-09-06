@@ -1,0 +1,86 @@
+name: Build Frazione Lab Android Offline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "offline/android/**"
+      - ".github/workflows/build-android-offline.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager)"; fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Run FRA1 codec tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/fra1-tests && mkdir -p /tmp/fra1-tests
+          javac -encoding UTF-8 -d /tmp/fra1-tests \
+            offline/android/src/com/frazionelab/offline/Fra1Codec.java \
+            offline/android/test/com/frazionelab/offline/Fra1CodecTest.java
+          java -cp /tmp/fra1-tests com.frazionelab.offline.Fra1CodecTest
+
+      - name: Verify offline manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ! grep -q "android.permission.INTERNET" offline/android/AndroidManifest.xml
+
+      - name: Build and sign APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          PROJECT="$GITHUB_WORKSPACE/offline/android"
+          BUILD="$PROJECT/.build"
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          ANDROID_JAR="$ANDROID_HOME/platforms/android-36/android.jar"
+          OUT="$GITHUB_WORKSPACE/Frazione-Lab-Offline-Android-v2.0.apk"
+          rm -rf "$BUILD" && mkdir -p "$BUILD"/{classes,dex}
+          "$BT/aapt2" link -o "$BUILD/resources.apk" -I "$ANDROID_JAR" --manifest "$PROJECT/AndroidManifest.xml" --auto-add-overlay
+          mapfile -t SOURCES < <(find "$PROJECT/src" -type f -name '*.java' | sort)
+          javac --release 17 -encoding UTF-8 -cp "$ANDROID_JAR" -d "$BUILD/classes" "${SOURCES[@]}"
+          jar cf "$BUILD/classes.jar" -C "$BUILD/classes" .
+          "$BT/d8" --lib "$ANDROID_JAR" --min-api 26 --output "$BUILD/dex" "$BUILD/classes.jar"
+          cp "$BUILD/resources.apk" "$BUILD/unsigned.apk"
+          (cd "$BUILD/dex" && zip -q -0 "$BUILD/unsigned.apk" classes.dex)
+          "$BT/zipalign" -f -p 4 "$BUILD/unsigned.apk" "$BUILD/aligned.apk"
+          keytool -genkeypair -noprompt -keystore "$BUILD/debug.keystore" -storepass android -keypass android -alias androiddebugkey -dname "CN=Frazione Lab Offline,O=Local,C=IT" -keyalg RSA -keysize 2048 -validity 10000 >/dev/null 2>&1
+          cp "$BUILD/aligned.apk" "$OUT"
+          "$BT/apksigner" sign --ks "$BUILD/debug.keystore" --ks-pass pass:android --key-pass pass:android --ks-key-alias androiddebugkey --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true "$OUT"
+          "$BT/apksigner" verify --verbose --print-certs "$OUT"
+          "$BT/zipalign" -c -p 4 "$OUT"
+          sha256sum "$OUT"
+          ls -lh "$OUT"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Frazione-Lab-Offline-Android-v2.0
+          path: Frazione-Lab-Offline-Android-v2.0.apk
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
