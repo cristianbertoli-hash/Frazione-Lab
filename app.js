@@ -6,6 +6,7 @@ let originalFile=null, fra1Packet=null, fra1ePacket=null, restored=null;
 let selectedContainer=null, selectedInfo=null;
 let originalUrl=null, restoredUrl=null, fra1Url=null, fra1eUrl=null;
 let qrOriginalFile=null, qrFra1e=null, qrFrames=[], qrIndex=0, qrTimer=null, qrExportUrl=null;
+let qrImportedFra1e=null, qrRecovered=null, qrRecoveredUrl=null;
 
 function sizeText(n){ if(n<1024)return `${n} B`; if(n<1024*1024)return `${(n/1024).toFixed(1)} KB`; return `${(n/1024/1024).toFixed(2)} MB`; }
 function setStatus(el,msg,error=false){ el.textContent=msg; el.className='status '+(error?'error':'ok'); }
@@ -61,6 +62,12 @@ function startQrAnimation(){
     try{ renderQrFrame(); }
     catch(e){ stopQrAnimation(); setStatus($('qrStatus'),e.message,true); }
   },interval);
+}
+
+function clearQrRecovered(){
+  qrRecovered=null;
+  revoke(qrRecoveredUrl); qrRecoveredUrl=null;
+  $('qrDownload').disabled=true;
 }
 
 function resetQrGenerated(){
@@ -138,7 +145,8 @@ $('qrInput').addEventListener('change',()=>{
   const file=$('qrInput').files?.[0];
   qrOriginalFile=file||null;
   resetQrGenerated();
-  $('qrRestore').disabled=true; $('qrDownload').disabled=true;
+  qrImportedFra1e=null; clearQrRecovered();
+  $('qrRestore').disabled=true;
   if(!file){ $('qrInputInfo').textContent='Nessun file scelto'; $('qrGenerate').disabled=true; return; }
   $('qrInputInfo').textContent=`${file.name} • ${sizeText(file.size)} • ${file.type||'tipo non dichiarato'}`;
   if(file.size>MAX_QR_FILE_BYTES){
@@ -162,11 +170,11 @@ $('qrGenerate').addEventListener('click',async()=>{
     const fra1=await FractionCodec.packOriginalFile({name:qrOriginalFile.name,mime:qrOriginalFile.type||'application/octet-stream',bytes});
     qrFra1e=await FractionCodec.encryptFra1(fra1,password,256);
     const split=await FRA1QR.split(qrFra1e,{payloadBytes:1350});
-    qrFrames=split.frames; qrIndex=0;
+    qrFrames=split.frames; qrIndex=0; qrImportedFra1e=qrFra1e; clearQrRecovered();
     renderQrFrame();
-    $('qrPlay').disabled=false; $('qrPause').disabled=false; $('qrExport').disabled=false;
+    $('qrPlay').disabled=false; $('qrPause').disabled=false; $('qrExport').disabled=false; $('qrRestore').disabled=false;
     setStatus($('qrStatus'),`Creati ${qrFrames.length} QR • originale ${sizeText(bytes.length)} • FRA1E ${sizeText(qrFra1e.length)} • AES-256. I QR contengono solo dati cifrati.`);
-  }catch(e){ resetQrGenerated(); setStatus($('qrStatus'),e.message,true); }
+  }catch(e){ resetQrGenerated(); qrImportedFra1e=null; $('qrRestore').disabled=true; setStatus($('qrStatus'),e.message,true); }
   finally{ btn.disabled=false; btn.textContent='GENERA QR CIFRATI'; }
 });
 
@@ -184,6 +192,46 @@ $('qrExport').addEventListener('click',()=>{
   revoke(qrExportUrl); qrExportUrl=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=qrExportUrl; a.download=(qrOriginalFile?.name||'frazione-lab')+'.fra1qr.json'; a.click();
   setStatus($('qrStatus'),`Esportato set di ${qrFrames.length} frame JSON. Il contenuto resta FRA1E AES-256 cifrato.`);
+});
+
+$('qrImportInput').addEventListener('change',async()=>{
+  const file=$('qrImportInput').files?.[0]; if(!file)return;
+  stopQrAnimation(); qrImportedFra1e=null; clearQrRecovered(); $('qrRestore').disabled=true;
+  try{
+    const frameTexts=FRA1QR.parseFrameSetJson(await file.text());
+    const reconstructed=FRA1QR.reassemble(frameTexts);
+    const info=FractionCodec.inspectContainer(reconstructed);
+    if(info.kind!=='fra1e' || info.keyBits!==256) throw new Error('Il set QR non ricostruisce un FRA1E AES-256 valido');
+    qrFrames=frameTexts; qrIndex=0; qrImportedFra1e=reconstructed;
+    renderQrFrame();
+    $('qrPlay').disabled=false; $('qrPause').disabled=false; $('qrExport').disabled=false; $('qrRestore').disabled=false;
+    setStatus($('qrStatus'),`Importati ${qrFrames.length} frame • FRA1E AES-256 ricostruito (${sizeText(reconstructed.length)}). Inserisci la password per recuperare l’originale.`);
+  }catch(e){
+    qrFrames=[]; qrIndex=0; $('qrCanvas').innerHTML=''; $('qrStage').style.display='none'; $('qrFrameLabel').textContent='Nessun frame';
+    $('qrPlay').disabled=true; $('qrPause').disabled=true; $('qrExport').disabled=true;
+    setStatus($('qrStatus'),e.message,true);
+  }
+});
+
+$('qrRestore').addEventListener('click',async()=>{
+  if(!qrImportedFra1e)return;
+  const password=$('qrRestorePassword').value;
+  if(!password){ setStatus($('qrStatus'),'Inserisci la password del FRA1E ricostruito.',true); return; }
+  const btn=$('qrRestore'); btn.disabled=true; btn.textContent='DECIFRO E VERIFICO…'; clearQrRecovered();
+  try{
+    const plain=await FractionCodec.decryptFra1(qrImportedFra1e,password);
+    const decoded=await FractionCodec.unpackOriginalFile(plain);
+    qrRecovered=decoded;
+    qrRecoveredUrl=URL.createObjectURL(new Blob([decoded.bytes],{type:decoded.mime||'application/octet-stream'}));
+    $('qrDownload').disabled=false;
+    setStatus($('qrStatus'),`AES-GCM autenticato ✓ • SHA-256 verificato ✓ • recuperato ${decoded.name} • ${sizeText(decoded.bytes.length)} • identico byte-per-byte.`);
+  }catch(e){ setStatus($('qrStatus'),e.message,true); }
+  finally{ btn.disabled=false; btn.textContent='RICOSTRUISCI E DECIFRA'; }
+});
+
+$('qrDownload').addEventListener('click',()=>{
+  if(!qrRecovered||!qrRecoveredUrl)return;
+  const a=document.createElement('a'); a.href=qrRecoveredUrl; a.download=qrRecovered.name; a.click();
 });
 
 $('fra1Input').addEventListener('change',async()=>{
