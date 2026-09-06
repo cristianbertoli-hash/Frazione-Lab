@@ -1,0 +1,26 @@
+name: Test Frazione Lab Web Codec
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "codec.js"
+      - "tests/**"
+      - ".github/workflows/test-web.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Run FRA1E Web Crypto tests
+        run: node tests/fra1e.test.js
