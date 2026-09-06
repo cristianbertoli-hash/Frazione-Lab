@@ -3,9 +3,12 @@ name: Test Frazione Lab Web Codec
 on:
   workflow_dispatch:
   push:
-    branches: ["main", "feature/fra1e-offline-completion"]
+    branches: ["main", "feature/fra1e-offline-completion", "feature/fra1-qr-v0"]
     paths:
       - "codec.js"
+      - "fra1qr.js"
+      - "index.html"
+      - "app.js"
       - "tests/**"
       - ".github/workflows/test-web.yml"
 
@@ -24,3 +27,5 @@ jobs:
           node-version: "24"
       - name: Run FRA1E Web Crypto tests
         run: node tests/fra1e.test.js
+      - name: Run FRA1-QR tests
+        run: node tests/fra1qr.test.js
