@@ -92,10 +92,7 @@ jobs:
           (cd "$BUILD/dex" && zip -q -0 "$BUILD/unsigned.apk" classes.dex)
           "$BT/zipalign" -f -p 4 "$BUILD/unsigned.apk" "$BUILD/aligned.apk"
 
-          curl -fsSL \
-            "https://raw.githubusercontent.com/cristianbertoli-hash/whisper-locale-android/feature/medlab-care-android-v0.1/medlab-care-android/keystore/medlab-care-test.keystore.b64" \
-            -o "$BUILD/medlab-care-test.keystore.b64"
-          base64 -d "$BUILD/medlab-care-test.keystore.b64" > "$BUILD/medlab-care-test.keystore"
+          base64 -d "$PROJECT/keystore/medlab-care-test.keystore.b64" > "$BUILD/medlab-care-test.keystore"
 
           cp "$BUILD/aligned.apk" "$OUT"
           "$BT/apksigner" sign \
