@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.braincore.medlabcare">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.braincore.medlabcare"
+    android:versionCode="3"
+    android:versionName="0.3">
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
     <application
         android:allowBackup="false"
@@ -8,7 +11,7 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
         <activity
-            android:name="io.braincore.medlabcare.MainActivity"
+            android:name="io.braincore.medlabcare.MainActivityV3"
             android:exported="true"
             android:screenOrientation="portrait">
             <intent-filter>
