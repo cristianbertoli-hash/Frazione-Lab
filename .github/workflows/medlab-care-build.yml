@@ -1,16 +1,16 @@
-name: Build MEDLAB Care Android v0.1
+name: Build MEDLAB Care Android v0.2
 
 on:
   workflow_dispatch:
   push:
-    branches: ["ci/medlab-care-v0.1"]
+    branches: ["ci/medlab-care-v0.2"]
     paths:
       - "medlab-care-build/**"
       - "!medlab-care-build/releases/**"
       - ".github/workflows/medlab-care-build.yml"
 
 concurrency:
-  group: medlab-care-v01-${{ github.ref }}
+  group: medlab-care-v02-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -47,8 +47,11 @@ jobs:
           javac -encoding UTF-8 -d /tmp/medlab-tests \
             medlab-care-build/src/io/braincore/medlabcare/TriageEngine.java \
             medlab-care-build/src/io/braincore/medlabcare/MessageComposer.java \
-            medlab-care-build/test/io/braincore/medlabcare/TriageEngineTest.java
+            medlab-care-build/src/io/braincore/medlabcare/TerritoryData.java \
+            medlab-care-build/test/io/braincore/medlabcare/TriageEngineTest.java \
+            medlab-care-build/test/io/braincore/medlabcare/TerritoryDataTest.java
           java -cp /tmp/medlab-tests io.braincore.medlabcare.TriageEngineTest
+          java -cp /tmp/medlab-tests io.braincore.medlabcare.TerritoryDataTest
 
       - name: Verify privacy manifest
         shell: bash
@@ -66,7 +69,7 @@ jobs:
           BUILD="$PROJECT/.build"
           BT="$ANDROID_HOME/build-tools/36.0.0"
           ANDROID_JAR="$ANDROID_HOME/platforms/android-36/android.jar"
-          OUT="$GITHUB_WORKSPACE/MEDLAB-Care-v0.1-debug.apk"
+          OUT="$GITHUB_WORKSPACE/MEDLAB-Care-v0.2-debug.apk"
           rm -rf "$BUILD" && mkdir -p "$BUILD"/{classes,dex}
 
           "$BT/aapt2" link \
@@ -109,7 +112,7 @@ jobs:
         run: |
           set -euxo pipefail
           BT="$ANDROID_HOME/build-tools/36.0.0"
-          APK="$GITHUB_WORKSPACE/MEDLAB-Care-v0.1-debug.apk"
+          APK="$GITHUB_WORKSPACE/MEDLAB-Care-v0.2-debug.apk"
           test -s "$APK"
           "$BT/apksigner" verify --verbose --print-certs "$APK" | tee /tmp/apksigner.txt
           "$BT/zipalign" -c -p 4 "$APK"
@@ -123,8 +126,8 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MEDLAB-Care-v0.1-debug
-          path: MEDLAB-Care-v0.1-debug.apk
+          name: MEDLAB-Care-v0.2-debug
+          path: MEDLAB-Care-v0.2-debug.apk
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
@@ -134,13 +137,13 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p medlab-care-build/releases
-          base64 -w 76 MEDLAB-Care-v0.1-debug.apk > medlab-care-build/releases/MEDLAB-Care-v0.1-debug.apk.b64
-          sha256sum MEDLAB-Care-v0.1-debug.apk > medlab-care-build/releases/MEDLAB-Care-v0.1-debug.sha256.txt
-          cp /tmp/apksigner.txt medlab-care-build/releases/apksigner-verify.txt
-          cp /tmp/badging.txt medlab-care-build/releases/badging.txt
+          base64 -w 76 MEDLAB-Care-v0.2-debug.apk > medlab-care-build/releases/MEDLAB-Care-v0.2-debug.apk.b64
+          sha256sum MEDLAB-Care-v0.2-debug.apk > medlab-care-build/releases/MEDLAB-Care-v0.2-debug.sha256.txt
+          cp /tmp/apksigner.txt medlab-care-build/releases/apksigner-v0.2.txt
+          cp /tmp/badging.txt medlab-care-build/releases/badging-v0.2.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add medlab-care-build/releases/
           git diff --cached --quiet && exit 0
-          git commit -m "build: publish verified MEDLAB Care v0.1 APK"
+          git commit -m "build: publish verified MEDLAB Care v0.2 APK"
           git push origin HEAD:${GITHUB_REF_NAME}
