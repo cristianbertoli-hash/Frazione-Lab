@@ -1,16 +1,16 @@
-name: Build MEDLAB Care Android v0.2
+name: Build MEDLAB Care Android v0.3
 
 on:
   workflow_dispatch:
   push:
-    branches: ["ci/medlab-care-v0.2"]
+    branches: ["ci/medlab-care-v0.3"]
     paths:
       - "medlab-care-build/**"
       - "!medlab-care-build/releases/**"
       - ".github/workflows/medlab-care-build.yml"
 
 concurrency:
-  group: medlab-care-v02-${{ github.ref }}
+  group: medlab-care-v03-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -39,7 +39,7 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Run core tests
+      - name: Run core and directory tests
         shell: bash
         run: |
           set -euxo pipefail
@@ -48,10 +48,13 @@ jobs:
             medlab-care-build/src/io/braincore/medlabcare/TriageEngine.java \
             medlab-care-build/src/io/braincore/medlabcare/MessageComposer.java \
             medlab-care-build/src/io/braincore/medlabcare/TerritoryData.java \
+            medlab-care-build/src/io/braincore/medlabcare/DoctorDirectory.java \
             medlab-care-build/test/io/braincore/medlabcare/TriageEngineTest.java \
-            medlab-care-build/test/io/braincore/medlabcare/TerritoryDataTest.java
+            medlab-care-build/test/io/braincore/medlabcare/TerritoryDataTest.java \
+            medlab-care-build/test/io/braincore/medlabcare/DoctorDirectoryTest.java
           java -cp /tmp/medlab-tests io.braincore.medlabcare.TriageEngineTest
           java -cp /tmp/medlab-tests io.braincore.medlabcare.TerritoryDataTest
+          java -cp /tmp/medlab-tests io.braincore.medlabcare.DoctorDirectoryTest
 
       - name: Verify privacy manifest
         shell: bash
@@ -69,7 +72,7 @@ jobs:
           BUILD="$PROJECT/.build"
           BT="$ANDROID_HOME/build-tools/36.0.0"
           ANDROID_JAR="$ANDROID_HOME/platforms/android-36/android.jar"
-          OUT="$GITHUB_WORKSPACE/MEDLAB-Care-v0.2-debug.apk"
+          OUT="$GITHUB_WORKSPACE/MEDLAB-Care-v0.3-debug.apk"
           rm -rf "$BUILD" && mkdir -p "$BUILD"/{classes,dex}
 
           "$BT/aapt2" link \
@@ -89,19 +92,17 @@ jobs:
           (cd "$BUILD/dex" && zip -q -0 "$BUILD/unsigned.apk" classes.dex)
           "$BT/zipalign" -f -p 4 "$BUILD/unsigned.apk" "$BUILD/aligned.apk"
 
-          keytool -genkeypair -noprompt \
-            -keystore "$BUILD/debug.keystore" \
-            -storepass android -keypass android \
-            -alias androiddebugkey \
-            -dname "CN=MEDLAB Care Test,O=BrainCore,C=IT" \
-            -keyalg RSA -keysize 2048 -validity 10000 >/dev/null 2>&1
+          curl -fsSL \
+            "https://raw.githubusercontent.com/cristianbertoli-hash/whisper-locale-android/feature/medlab-care-android-v0.1/medlab-care-android/keystore/medlab-care-test.keystore.b64" \
+            -o "$BUILD/medlab-care-test.keystore.b64"
+          base64 -d "$BUILD/medlab-care-test.keystore.b64" > "$BUILD/medlab-care-test.keystore"
 
           cp "$BUILD/aligned.apk" "$OUT"
           "$BT/apksigner" sign \
-            --ks "$BUILD/debug.keystore" \
+            --ks "$BUILD/medlab-care-test.keystore" \
             --ks-pass pass:android \
             --key-pass pass:android \
-            --ks-key-alias androiddebugkey \
+            --ks-key-alias medlab-care-test \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
             --v3-signing-enabled true \
@@ -112,12 +113,14 @@ jobs:
         run: |
           set -euxo pipefail
           BT="$ANDROID_HOME/build-tools/36.0.0"
-          APK="$GITHUB_WORKSPACE/MEDLAB-Care-v0.2-debug.apk"
+          APK="$GITHUB_WORKSPACE/MEDLAB-Care-v0.3-debug.apk"
           test -s "$APK"
           "$BT/apksigner" verify --verbose --print-certs "$APK" | tee /tmp/apksigner.txt
           "$BT/zipalign" -c -p 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | tee /tmp/badging.txt
           grep -F "package: name='io.braincore.medlabcare'" /tmp/badging.txt
+          grep -F "versionCode='3'" /tmp/badging.txt
+          grep -F "versionName='0.3'" /tmp/badging.txt
           grep -F "application: label='MEDLAB Care'" /tmp/badging.txt
           unzip -l "$APK" | grep -F "classes.dex"
           sha256sum "$APK" | tee /tmp/SHA256SUMS
@@ -126,8 +129,8 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MEDLAB-Care-v0.2-debug
-          path: MEDLAB-Care-v0.2-debug.apk
+          name: MEDLAB-Care-v0.3-debug
+          path: MEDLAB-Care-v0.3-debug.apk
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
@@ -137,13 +140,13 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p medlab-care-build/releases
-          base64 -w 76 MEDLAB-Care-v0.2-debug.apk > medlab-care-build/releases/MEDLAB-Care-v0.2-debug.apk.b64
-          sha256sum MEDLAB-Care-v0.2-debug.apk > medlab-care-build/releases/MEDLAB-Care-v0.2-debug.sha256.txt
-          cp /tmp/apksigner.txt medlab-care-build/releases/apksigner-v0.2.txt
-          cp /tmp/badging.txt medlab-care-build/releases/badging-v0.2.txt
+          base64 -w 76 MEDLAB-Care-v0.3-debug.apk > medlab-care-build/releases/MEDLAB-Care-v0.3-debug.apk.b64
+          sha256sum MEDLAB-Care-v0.3-debug.apk > medlab-care-build/releases/MEDLAB-Care-v0.3-debug.sha256.txt
+          cp /tmp/apksigner.txt medlab-care-build/releases/apksigner-v0.3.txt
+          cp /tmp/badging.txt medlab-care-build/releases/badging-v0.3.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add medlab-care-build/releases/
           git diff --cached --quiet && exit 0
-          git commit -m "build: publish verified MEDLAB Care v0.2 APK"
+          git commit -m "build: publish verified MEDLAB Care v0.3 APK"
           git push origin HEAD:${GITHUB_REF_NAME}
