@@ -115,7 +115,7 @@ jobs:
           "$BT/zipalign" -c -p 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | tee /tmp/badging.txt
           grep -F "package: name='io.braincore.medlabcare'" /tmp/badging.txt
-          grep -F "application-label:'MEDLAB Care'" /tmp/badging.txt
+          grep -F "application: label='MEDLAB Care'" /tmp/badging.txt
           unzip -l "$APK" | grep -F "classes.dex"
           sha256sum "$APK" | tee /tmp/SHA256SUMS
           ls -lh "$APK"
