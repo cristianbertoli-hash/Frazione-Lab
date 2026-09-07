@@ -1,0 +1,17 @@
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=MEDLAB Care Test, O=BrainCore, C=IT
+Signer #1 certificate SHA-256 digest: 6645f10a0c11e99aa16e192f19e59630428c73f81963ec2075151a3c83c46ddd
+Signer #1 certificate SHA-1 digest: a7a870f85517767d48582046cb984fc1fdffa670
+Signer #1 certificate MD5 digest: 42be0b3c6c244a7c042c7024fc1cb93e
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: 6d13b79ac4f823a7ccf0283927ee0e4e72ea865dd513a4ce50986c01a7dc0218
+Signer #1 public key SHA-1 digest: 64979f37077170da9a7450e07357e22db87e16f4
+Signer #1 public key MD5 digest: 0ec14bfaaf6934429febbce58fcb9044
